@@ -2,8 +2,6 @@
 #pragma once
 #include "Arduino.h"
 
-#define WAIT_TIME_AFTER_FIRE 10
-#define MIN_STEPS_TO_MOVE 400
 
 class ANADRUM_Channel
 {

@@ -2,17 +2,24 @@
 #include "FastLED.h"
 #include "ANADRUM_Pins.h"
 #include "ANADRUM_Tasks.h"
-#include "ANADRUM_Channel.h"
 #include <MIDI.h>
 
 #define NUM_CHANNELS 4
 #define NUM_PIXELS 4
 #define STEP_TIME 80
+#define WAIT_TIME_AFTER_FIRE 20
+#define MIN_STEPS_TO_MOVE 400
+
+#include "ANADRUM_Channel.h"
 
 long dimmer_off_time = 5000;
 hw_timer_t *phase_attack_timer = NULL;
 TaskHandle_t led_task_handle;
 TaskHandle_t channel_task_handle;
+
+boolean do_fire;
+int current_channel;
+int fired_channel;
 
 CRGB pixel[NUM_PIXELS];
 int next_firing_instance;
@@ -20,6 +27,34 @@ int next_firing_instance;
 MIDI_CREATE_INSTANCE(HardwareSerial, Serial1, DIN_MIDI);
 
 ANADRUM_Channel channel[4];
+
+void IRAM_ATTR zerocross_interrupt();
+
+//----------------------------------------------------------------------------------------
+//                                                            End Zero Crossing
+void IRAM_ATTR onTimer()
+{
+  digitalWrite(PIN_FIRE[current_channel], HIGH);
+  fired_channel = current_channel;
+}
+
+//----------------------------------------------------------------------------------------
+//                                                            Zero Crossing
+void IRAM_ATTR zerocross_interrupt() //
+{
+
+  digitalWrite(PIN_FIRE[fired_channel], LOW);
+
+  if (!do_fire)
+    return;
+
+  if (!digitalRead(PIN_ZEROCROSS))
+    return;
+
+  timerWrite(phase_attack_timer, 0);
+  timerAlarmEnable(phase_attack_timer);
+  do_fire = false;
+}
 
 //----------------------------------------------------------------------------------------
 void test(void *p)
@@ -103,11 +138,26 @@ void handle_note_on(uint8_t chann, uint8_t pitch, uint8_t vel)
   if (c < NUM_CHANNELS)
   {
     channel[c].fire();
+    do_fire = true; // trigger next zerocross
+    current_channel = c;
     log_v("Fire channel %d", c);
   }
   else
   {
     log_e("No Channel ready to fire");
+  }
+}
+
+//----------------------------------------------------------------------------------------
+//		                                                              MIDI CC
+
+void handle_controlchange(uint8_t chann, uint8_t cc, uint8_t val)
+{
+  log_v("CC: %d %d", cc, val);
+  if (cc == 10)
+  {
+    dimmer_off_time = map(val, 0, 127, 9000, 500);
+    timerAlarmWrite(phase_attack_timer, dimmer_off_time, false);
   }
 }
 
@@ -130,6 +180,7 @@ void setup()
   Serial1.begin(31250, SERIAL_8N1, PIN_MIDI_RX);
   DIN_MIDI.begin(); // Launch MIDI, by default listening to channel 1.
   DIN_MIDI.setHandleNoteOn(handle_note_on);
+  DIN_MIDI.setHandleControlChange(handle_controlchange);
 
   for (int i = 0; i < NUM_CHANNELS; i++)
   {
@@ -155,6 +206,14 @@ void setup()
       CHANNEL__TASK_PRIORITY,   /* Priority of the task */
       &channel_task_handle,     /* Task handle. */
       CHANNEL__TASK_CORE);
+
+  pinMode(PIN_ZEROCROSS, INPUT_PULLDOWN);
+  attachInterrupt(PIN_ZEROCROSS, zerocross_interrupt, RISING);
+
+  phase_attack_timer = timerBegin(2, 80, true);
+  timerAttachInterrupt(phase_attack_timer, &onTimer, true);
+  timerAlarmWrite(phase_attack_timer, dimmer_off_time, false);
+
   log_v("Setup Done");
 }
 
