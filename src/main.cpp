@@ -7,12 +7,12 @@
 #define NUM_CHANNELS 4
 #define NUM_PIXELS 4
 #define STEP_TIME 80
-#define WAIT_TIME_AFTER_FIRE 20
+#define WAIT_TIME_AFTER_FIRE 100
 #define MIN_STEPS_TO_MOVE 400
 
 #include "ANADRUM_Channel.h"
 
-long dimmer_off_time = 5000;
+long dimmer_off_time = 500;
 hw_timer_t *phase_attack_timer = NULL;
 TaskHandle_t led_task_handle;
 TaskHandle_t channel_task_handle;

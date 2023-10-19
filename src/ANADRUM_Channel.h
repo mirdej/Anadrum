@@ -46,7 +46,7 @@ void ANADRUM_Channel::begin(int ENABLE, int DIR, int PULSE, int FIRE, int STOP)
     digitalWrite(pin_fire, LOW);
     digitalWrite(pin_en, LOW);
     digitalWrite(pin_pulse, LOW);
-    digitalWrite(pin_dir, LOW);
+    digitalWrite(pin_dir, HIGH);
 }
 
 //----------------------------------------------------------------------------------------
