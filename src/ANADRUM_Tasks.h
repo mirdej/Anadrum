@@ -10,9 +10,16 @@ extern TaskHandle_t led_task_handle;
 #define LED_TASK_DELAY 40
 #define LED_TASK_STACK_SIZE 12000
 
+// +-----------------------------------------------------------------------+
+//                                                      Button Task
+extern TaskHandle_t button_task_handle;
+#define BUTTON_TASK_PRIORITY 0
+#define BUTTON_TASK_CORE LOOP_TASK_CORE
+#define BUTTON_TASK_DELAY 40
+#define BUTTON_TASK_STACK_SIZE 12000
 
 // +-----------------------------------------------------------------------+
-//                                                      LED Task
+//                                                      CHANNEL Task
 extern TaskHandle_t channel__task_handle;
 #define CHANNEL__TASK_PRIORITY 0
 #define CHANNEL__TASK_CORE 0

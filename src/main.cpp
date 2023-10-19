@@ -3,6 +3,7 @@
 #include "ANADRUM_Pins.h"
 #include "ANADRUM_Tasks.h"
 #include <MIDI.h>
+#include "Preferences.h"
 
 #define NUM_CHANNELS 4
 #define NUM_PIXELS 4
@@ -10,12 +11,18 @@
 #define WAIT_TIME_AFTER_FIRE 100
 #define MIN_STEPS_TO_MOVE 400
 
+boolean learn_notes = false;
+int current_learn_note;
+
 #include "ANADRUM_Channel.h"
 
 long dimmer_off_time = 500;
 hw_timer_t *phase_attack_timer = NULL;
 TaskHandle_t led_task_handle;
 TaskHandle_t channel_task_handle;
+TaskHandle_t button_task_handle;
+
+Preferences preferences;
 
 boolean do_fire;
 int current_channel;
@@ -27,6 +34,7 @@ int next_firing_instance;
 MIDI_CREATE_INSTANCE(HardwareSerial, Serial1, DIN_MIDI);
 
 ANADRUM_Channel channel[4];
+int notes[NUM_CHANNELS];
 
 void IRAM_ATTR zerocross_interrupt();
 
@@ -65,6 +73,29 @@ void test(void *p)
     vTaskDelay(2000 / portTICK_PERIOD_MS);
   }
 }
+
+//----------------------------------------------------------------------------------------
+void button_task(void *p)
+{
+  int last_button_state = digitalRead(PIN_LEARN);
+  while (1) {
+    int state = digitalRead(PIN_LEARN);
+    if (state != last_button_state) {
+      if (!state) {
+        if (learn_notes) {
+          preferences.putBytes("notes",notes,NUM_CHANNELS);
+          learn_notes = false;
+        } else {
+          learn_notes = true;
+          current_learn_note = 0;
+        }
+      }
+      last_button_state = state;
+    }
+    vTaskDelay(BUTTON_TASK_DELAY / portTICK_PERIOD_MS);
+  }
+}
+
 //----------------------------------------------------------------------------------------
 void channel_task(void *p)
 {
@@ -96,17 +127,31 @@ void led_task(void *p)
     for (int i = 0; i < NUM_CHANNELS; i++)
     {
       pix = NUM_CHANNELS - 1 - i;
-      if (channel[i].ready)
+      if (learn_notes)
       {
-        pixel[pix] = CRGB::Green;
+        if (current_learn_note == i)
+        {
+          pixel[pix] = CRGB::Red;
+        }
+        else
+        {
+          pixel[pix] = CRGB::Blue;
+        }
       }
       else
       {
-        pixel[pix] = CRGB::Red;
-      }
-      if (channel[i].steps_to_move > 0)
-      {
-        pixel[pix] = CRGB::Yellow;
+        if (channel[i].ready)
+        {
+          pixel[pix] = CRGB::Green;
+        }
+        else
+        {
+          pixel[pix] = CRGB::Red;
+        }
+        if (channel[i].steps_to_move > 0)
+        {
+          pixel[pix] = CRGB::Yellow;
+        }
       }
     }
     FastLED.show();
@@ -119,32 +164,45 @@ void led_task(void *p)
 
 void handle_note_on(uint8_t chann, uint8_t pitch, uint8_t vel)
 {
-  // find next ready channel that has the least of shots fired
-  int c, s;
-  s = 12000;
-  c = NUM_CHANNELS;
-  for (int i = 0; i < NUM_CHANNELS; i++)
+  if (learn_notes)
   {
-    if (channel[i].ready)
-    {
-      if (channel[i].shots_fired < s)
-      {
-        s = channel[i].shots_fired;
-        c = i;
-      }
-    }
-  }
-
-  if (c < NUM_CHANNELS)
-  {
-    channel[c].fire();
-    do_fire = true; // trigger next zerocross
-    current_channel = c;
-    log_v("Fire channel %d", c);
+    notes[current_learn_note] = pitch;
+    current_learn_note++;
+    current_learn_note %= NUM_CHANNELS;
   }
   else
   {
-    log_e("No Channel ready to fire");
+
+    // find next ready channel that has the least of shots fired
+    int c, s;
+    s = 12000;
+    c = NUM_CHANNELS;
+    for (int i = 0; i < NUM_CHANNELS; i++)
+    {
+      if (channel[i].ready)
+      {
+        if (notes[i] == 255 || notes[i] == pitch)
+        {
+          if (channel[i].shots_fired < s)
+          {
+            s = channel[i].shots_fired;
+            c = i;
+          }
+        }
+      }
+    }
+
+    if (c < NUM_CHANNELS)
+    {
+      channel[c].fire();
+      do_fire = true; // trigger next zerocross
+      current_channel = c;
+      log_v("Fire channel %d", c);
+    }
+    else
+    {
+      log_e("No Channel ready to fire");
+    }
   }
 }
 
@@ -177,6 +235,19 @@ void setup()
   pixel[3] = CRGB::Orange;
   FastLED.show();
 
+  preferences.begin("prefs");
+  if (preferences.getBytesLength("notes") == NUM_CHANNELS)
+  {
+    preferences.getBytes("notes", notes, NUM_CHANNELS);
+  }
+  else
+  {
+    for (int i = 0; i < NUM_CHANNELS; i++)
+    {
+      notes[i] = 255;
+    }
+  }
+
   Serial1.begin(31250, SERIAL_8N1, PIN_MIDI_RX);
   DIN_MIDI.begin(); // Launch MIDI, by default listening to channel 1.
   DIN_MIDI.setHandleNoteOn(handle_note_on);
@@ -199,6 +270,15 @@ void setup()
       LED_TASK_CORE);      /* Core where the task should run */
 
   xTaskCreatePinnedToCore(
+      button_task,            /* Function to implement the task */
+      "BUTTON Task",          /* Name of the task */
+      BUTTON_TASK_STACK_SIZE, /* Stack size in words */
+      NULL,                   /* Task input parameter */
+      BUTTON_TASK_PRIORITY,   /* Priority of the task */
+      &channel_task_handle,   /* Task handle. */
+      BUTTON_TASK_CORE);
+
+  xTaskCreatePinnedToCore(
       channel_task,             /* Function to implement the task */
       "CHANNEL Task",           /* Name of the task */
       CHANNEL__TASK_STACK_SIZE, /* Stack size in words */
@@ -213,6 +293,8 @@ void setup()
   phase_attack_timer = timerBegin(2, 80, true);
   timerAttachInterrupt(phase_attack_timer, &onTimer, true);
   timerAlarmWrite(phase_attack_timer, dimmer_off_time, false);
+
+  pinMode(PIN_LEARN, INPUT_PULLUP);
 
   log_v("Setup Done");
 }
