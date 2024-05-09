@@ -7,9 +7,9 @@
 
 #define NUM_CHANNELS 4
 #define NUM_PIXELS 4
-#define STEP_TIME 80
+#define STEP_TIME 120
 #define WAIT_TIME_AFTER_FIRE 100
-#define MIN_STEPS_TO_MOVE 400
+#define MIN_STEPS_TO_MOVE 100
 
 boolean learn_notes = false;
 int current_learn_note;
@@ -77,17 +77,40 @@ void test(void *p)
 //----------------------------------------------------------------------------------------
 void button_task(void *p)
 {
+  // vTaskDelete(NULL);
   int last_button_state = digitalRead(PIN_LEARN);
-  while (1) {
+  long timestamp;
+  while (1)
+  {
     int state = digitalRead(PIN_LEARN);
-    if (state != last_button_state) {
-      if (!state) {
-        if (learn_notes) {
-          preferences.putBytes("notes",notes,NUM_CHANNELS);
+    if (state != last_button_state)
+    {
+      if (!state)
+      {
+        timestamp = millis();
+        if (learn_notes)
+        {
+          preferences.putBytes("notes", notes, NUM_CHANNELS);
           learn_notes = false;
-        } else {
+        }
+        else
+        {
           learn_notes = true;
           current_learn_note = 0;
+        }
+      }
+      else
+      {
+        // button released
+        if (millis() - timestamp > 5000)
+        {
+          // reset all notes to "omni"
+          for (int i = 0; i < NUM_CHANNELS; i++)
+          {
+            notes[i] = 255;
+          }
+          preferences.putBytes("notes", notes, NUM_CHANNELS);
+          learn_notes = false;
         }
       }
       last_button_state = state;
@@ -150,7 +173,7 @@ void led_task(void *p)
         }
         if (channel[i].steps_to_move > 0)
         {
-          pixel[pix] = CRGB::Yellow;
+          pixel[pix] = CRGB::DarkBlue;
         }
       }
     }
@@ -164,6 +187,7 @@ void led_task(void *p)
 
 void handle_note_on(uint8_t chann, uint8_t pitch, uint8_t vel)
 {
+  log_v("Note %d",pitch);
   if (learn_notes)
   {
     notes[current_learn_note] = pitch;
@@ -211,7 +235,7 @@ void handle_note_on(uint8_t chann, uint8_t pitch, uint8_t vel)
 
 void handle_controlchange(uint8_t chann, uint8_t cc, uint8_t val)
 {
-  log_v("CC: %d %d", cc, val);
+ // log_v("CC: %d %d", cc, val);
   if (cc == 10)
   {
     dimmer_off_time = map(val, 0, 127, 9000, 500);
@@ -247,8 +271,11 @@ void setup()
       notes[i] = 255;
     }
   }
-
-  Serial1.begin(31250, SERIAL_8N1, PIN_MIDI_RX);
+ for (int i = 0; i < NUM_CHANNELS; i++)
+    {
+      notes[i] = 64;
+    }
+  Serial1.begin(31250, SERIAL_8N1, PIN_MIDI_RX, PIN_MIDI_TX);
   DIN_MIDI.begin(); // Launch MIDI, by default listening to channel 1.
   DIN_MIDI.setHandleNoteOn(handle_note_on);
   DIN_MIDI.setHandleControlChange(handle_controlchange);

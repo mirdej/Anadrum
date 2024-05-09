@@ -22,6 +22,8 @@ private:
     int pin_fire;
     int pin_stop;
     boolean in_step;
+    int step_count;
+    boolean in_end;
 };
 
 ANADRUM_Channel::ANADRUM_Channel()
@@ -57,6 +59,8 @@ void ANADRUM_Channel::fire()
     steps_to_move = MIN_STEPS_TO_MOVE;
     ready = false;
     in_step = true;
+    step_count = 0;
+    in_end = false;
 }
 
 //----------------------------------------------------------------------------------------
@@ -79,6 +83,7 @@ void ANADRUM_Channel::loop()
                 digitalWrite(pin_pulse, LOW);
                 in_step = true;
                 steps_to_move--;
+                step_count++;
             }
         }
     }
@@ -89,11 +94,17 @@ void ANADRUM_Channel::loop()
         ready = digitalRead(pin_stop);
         if (ready)
         {
-            steps_to_move = 0;
+            if (!in_end) {
+                steps_to_move = 0;
+                in_end = true;
+                log_v("Steps %d", step_count);
+            }
+            
         }
         else
         {
-            steps_to_move++;
+            steps_to_move = 1;
+         //   log_v("ADD step");
         }
 
         if (!steps_to_move)

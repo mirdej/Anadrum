@@ -11,5 +11,5 @@ const int PIN_ZEROCROSS = 10;
 const int PIN_FIRE[] = {14,13,12,11};
 const int PIN_STOP_B[] ={36,48,47,21};
 
-const int PIN_LEARN = 36;
-const int PIN_MIDI_TX = 21;
+const int PIN_LEARN = 47;
+const int PIN_MIDI_TX = 36;
